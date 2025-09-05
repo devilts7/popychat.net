@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat + Groups</title>
+<style>
+body{background:#0b1020;color:#e7e9ee;font-family:system-ui;padding:0;margin:0;}
+header{background:#0f162e;padding:16px;display:flex;justify-content:space-between;}
+.card{background:#121a36;padding:16px;margin:16px;border-radius:12px;}
+.hidden{display:none;}
+input,textarea,select,button{width:100%;margin-top:6px;padding:8px;border-radius:8px;background:#0c1329;color:#e7e9ee;border:1px solid #2a3766;}
+button{cursor:pointer;}
+.muted{color:#a9b3d1;font-size:13px;}
+</style>
+</head>
+<body>
+<header>
+<h1>Chat + Groups</h1>
+<div id="whoami" class="muted">Not signed in</div>
+</header>
+
+<div class="card" id="loginCard">
+<h2>Sign In</h2>
+<label>Username</label><input id="loginUser" autocomplete="username">
+<label>Password</label><input id="loginPass" type="password" autocomplete="current-password">
+<button id="loginBtn">Sign In</button>
+<div id="loginMsg" class="muted"></div>
+</div>
+
+<div class="card hidden" id="menuCard">
+<h2>Main Menu</h2>
+<button data-open="#accCard">Accounts</button>
+<button data-open="#pmCard">Private Messages</button>
+<button data-open="#groupsCard">Groups</button>
+</div>
+
+<div class="card hidden" id="accCard">
+<h3>Accounts</h3>
+<div>
+<h4>Create User</h4>
+<label>Username</label><input id="newUser">
+<label>Password</label><input type="password" id="newUserPass">
+<label>Email</label><input id="newUserEmail">
+<button id="createUserBtn">Create User</button>
+<div id="createUserMsg" class="muted"></div>
+</div>
+<div>
+<h4>Create Admin (mainadmin only)</h4>
+<label>Username</label><input id="newAdmin">
+<label>Password</label><input type="password" id="newAdminPass">
+<label>Email</label><input id="newAdminEmail">
+<button id="createAdminBtn">Create Admin</button>
+<div id="createAdminMsg" class="muted"></div>
+</div>
+</div>
+
+<div class="card hidden" id="pmCard">
+<h3>Private Messages</h3>
+<label>Recipient</label><input id="pmTo">
+<label>Message</label><textarea id="pmText"></textarea>
+<button id="pmSendBtn">Send</button>
+<div id="pmSendMsg" class="muted"></div>
+<h4>Inbox</h4>
+<div id="inboxList" class="muted"></div>
+<label>Delete Msg #</label><input id="delMsgIndex"><button id="delMsgBtn">Delete</button>
+<div id="delMsgNote" class="muted"></div>
+</div>
+
+<div class="card hidden" id="groupsCard">
+<h3>Groups</h3>
+<label>Group Name</label><input id="gName">
+<label>Privacy</label>
+<select id="gPrivacy"><option value="public">Public</option><option value="private">Private</option></select>
+<button id="gCreateBtn">Create Group</button>
+<div id="gCreateMsg" class="muted"></div>
+<h4>Join Public Group</h4>
+<label>Group Name</label><input id="gJoinName"><button id="gJoinBtn">Join</button>
+<div id="gJoinMsg" class="muted"></div>
+<h4>Send Group Message</h4>
+<label>Group Name</label><input id="gmGroup">
+<label>Message</label><textarea id="gmText"></textarea>
+<button id="gmSendBtn">Send</button>
+<div id="gmMsg" class="muted"></div>
+<h4>View Group Messages</h4>
+<label>Group Name</label><input id="gvGroup"><button id="gvBtn">View</button>
+<div id="gvList" class="muted"></div>
+</div>
+
+<script>
+let SESSION={username:null};
+function $(id){return document.querySelector(id);}
+function show(id){$(id).classList.remove("hidden");}
+function hide(id){$(id).classList.add("hidden");}
+function setMsg(id,text){$(id).textContent=text;}
+function requireSign(){if(!SESSION.username){alert("Sign in first");return false;}return true;}
+
+$("#loginBtn").onclick=async()=>{
+let u=$("#loginUser").value.trim(),p=$("#loginPass").value;
+let r=await fetch("/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:u,password:p})}).then(res=>res.json());
+if(!r.ok){setMsg("#loginMsg",r.msg);return;}
+SESSION.username=u;setMsg("#loginMsg","");
+hide("#loginCard");show("#menuCard");$("#whoami").textContent=`Signed in as: ${SESSION.username}`;
+};
+
+document.querySelectorAll("[data-open]").forEach(btn=>btn.onclick=()=>{hide("#accCard");hide("#pmCard");hide("#groupsCard");show(btn.getAttribute("data-open"));refreshInbox();refreshGroup();});
+
+$("#createUserBtn").onclick=async()=>{
+if(!requireSign())return;
+let msg=await fetch("/createUser",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentUser:SESSION.username,username:$("#newUser").value,password:$("#newUserPass").value,email:$("#newUserEmail").value})}).then(r=>r.json());
+setMsg("#createUserMsg",msg.ok?"User created":msg.msg);
+};
+$("#createAdminBtn").onclick=async()=>{
+if(!requireSign())return;
+let msg=await fetch("/createAdmin",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentUser:SESSION.username,username:$("#newAdmin").value,password:$("#newAdminPass").value,email:$("#newAdminEmail").value})}).then(r=>r.json());
+setMsg("#createAdminMsg",msg.ok?"Admin created":msg.msg);
+};
+$("#pmSendBtn").onclick=async()=>{
+if(!requireSign())return;
+let msg=await fetch("/sendPM",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({from:SESSION.username,to:$("#pmTo").value,text:$("#pmText").value})}).then(r=>r.json());
+setMsg("#pmSendMsg",msg.ok?"Sent":msg.msg);refreshInbox();
+};
+async function refreshInbox(){
+if(!SESSION.username)return;
+let r=await fetch(`/inbox/${SESSION.username}`).then(r=>r.json());
+if(!r.ok){$("#inboxList").textContent=r.msg;return;}
+$("#inboxList").innerHTML=r.messages.map((m,i)=>`${i}: From ${m.from} - ${m.text}`).join("\n");
+}
+$("#delMsgBtn").onclick=async()=>{
+if(!requireSign())return;
+let idx=parseInt($("#delMsgIndex").value);
+let r=await fetch("/deleteMsg",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:SESSION.username,index:idx})}).then(r=>r.json());
+setMsg("#delMsgNote",r.ok?"Deleted":r.msg);refreshInbox();
+};
+
+$("#gCreateBtn").onclick=async()=>{
+if(!requireSign())return;
+let r=await fetch("/createGroup",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentUser:SESSION.username,name:$("#gName").value,privacy:$("#gPrivacy").value})}).then(r=>r.json());
+setMsg("#gCreateMsg",r.ok?"Created":r.msg);refreshGroup();
+};
+$("#gmSendBtn").onclick=async()=>{
+if(!requireSign())return;
+let r=await fetch("/groupAction",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"send",actor:SESSION.username,groupName:$("#gmGroup").value,text:$("#gmText").value})}).then(r=>r.json());
+setMsg("#gmMsg",r.ok?"Sent":r.msg);refreshGroup();
+};
+$("#gvBtn").onclick=refreshGroup;
+async function refreshGroup(){
+if(!requireSign())return;
+let name=$("#gvGroup").value;
+if(!name)return;
+let r=await fetch(`/groupMessages/${name}/${SESSION.username}`).then(r=>r.json());
+if(!r.ok){$("#gvList").textContent=r.msg;return;}
+$("#gvList").innerHTML=r.messages.map(m=>`${m.from}: ${m.text}`).join("\n");
+}
+</script>
+</body>
+</html>
